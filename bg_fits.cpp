@@ -87,9 +87,17 @@ CBgFits::CBgFits( int xSize, int ySize )
 void CBgFits::Realloc( int sizeX, int sizeY, int bKeepOldData )
 {   
    if( sizeX>0 && sizeY>0 ){
-      float* new_data = new float[sizeX*sizeY];
+      float* new_data = NULL;
+      long int size = ((long int)(sizeX))*((long int)(sizeY));
+      printf("CBgFits::Realloc : allocated array of size = %ld floats = %ld bytes = %.2f GB\n",(long int)size,size*sizeof(float),(float(size)*sizeof(float))/(1024*1024*1024));
+      try{ 
+         new_data = new float[size];
+      }catch(...){
+         printf("ERROR : exception caught when trying to allocate array of size = %ld floats = %ld bytes = %.2f GB\n",(long int)size,size*sizeof(float),(float(size)*sizeof(float))/(1024*1024*1024));
+         exit(-1);
+      }
       if( data ){
-         if( bKeepOldData ){
+         if( bKeepOldData ){            
             memcpy(new_data,data,m_SizeX*m_SizeY*sizeof(float));
          }
          delete [] data;
@@ -218,8 +226,14 @@ int CBgFits::add_line( float* buffer, int size )
          Realloc( m_SizeX, 2*m_SizeY );
       }
    
-      int pos = m_lines_counter*m_SizeX;
-      memcpy(&(data[pos]),buffer,size*sizeof(float));
+      long int pos = ((long int)m_lines_counter)*((long int)m_SizeX);
+      try{
+         BG_FITS_DATA_TYPE* ptr = data+pos;
+         memcpy(ptr,buffer,size*sizeof(float));
+      }catch(...){
+         printf("ERROR : could not copy data to position %ld in the array\n",pos);
+         exit(-1);
+      }
       m_lines_counter++;
    }
    
@@ -370,11 +384,13 @@ int CBgFits::WriteFits( const char* fits_file, int bUpdateSizeY, int bWriteKeys 
          return( status );
       }
                                                                                               
-      int nelements = naxes[0] * naxes[1];          /* number of pixels to write */
+      long int nelements = naxes[0] * naxes[1];          /* number of pixels to write */
                                                                      
       /* Write the array of long integers (after converting them to short) */
-      if ( fits_write_img(fptr, TFLOAT, fpixel, nelements, data, &status) )
+      if ( fits_write_img(fptr, TFLOAT, fpixel, nelements, data, &status) ){
+         printf("ERROR : could not write output FITS files of size %ld elements\n",nelements);
          return( status );
+      }
          
       if( bWriteKeys > 0 ) {   
           SetKeyValues(); // set values like inttime etc to strings keyword values 
@@ -686,6 +702,8 @@ int CBgFits::ParseSkyIntegrations()
 
 int CBgFits::ReadFits( const char* fits_file, int bAutoDetect /*=0*/, int bReadImage /* =1 */ , int bIgnoreHeaderErrors /* =0 */ , bool transposed /* =false */ )
 {
+  printf("DEBUG : ReadFits( %s , %d , %d , %d , %d )\n",fits_file,bAutoDetect,bReadImage,bIgnoreHeaderErrors,transposed);
+
   fitsfile *fp=0;
   int status = 0;
   string szFreqKeyword = "CRVAL1", szFreqDelta = "CDELT1", szTimeDelta = "CDELT2";
@@ -740,9 +758,10 @@ int CBgFits::ReadFits( const char* fits_file, int bAutoDetect /*=0*/, int bReadI
      }
      
      if( bReadImage > 0 ){
+         long int sizeXY = ((long int)m_SizeX)*((long int)m_SizeY);
          if( !data ){
-            printf("Allocating %d x %d = %d image for naxis = %d \n",m_SizeX,m_SizeY,m_SizeX*m_SizeY,naxis);fflush(stdout);
-            data = new float[m_SizeX*m_SizeY];
+            printf("Allocating %d x %d = %ld image for naxis = %d \n",m_SizeX,m_SizeY,sizeXY,naxis);fflush(stdout);
+            data = new float[sizeXY];
          }
      
 //         long firstpixel[2] = {1, 1};
@@ -752,7 +771,7 @@ int CBgFits::ReadFits( const char* fits_file, int bAutoDetect /*=0*/, int bReadI
              firstpixel[a] = 1;
          }
          
-         int sizeXY = m_SizeX*m_SizeY;
+//         int sizeXY = m_SizeX*m_SizeY;
          fits_read_pix(fp, image_type, firstpixel, sizeXY, NULL, data, NULL, &status);
          if( status ){ 
              printf("ERROR : could not read data from FITS file %s, due to error %d\n",m_FileName.c_str(),status);
@@ -824,6 +843,18 @@ int CBgFits::ReadFits( const char* fits_file, int bAutoDetect /*=0*/, int bReadI
        rec.Keyword = keyname;
        rec.Value = keyvalue;
        rec.Comment = comment; 
+       
+       printf("DEBUG0 : %s = %s\n",rec.Keyword.c_str(),rec.Value.c_str());
+       
+       if( ( strcmp(rec.Keyword.c_str(),"CTYPE2") == 0  && strcmp(rec.Value.c_str(),"Frequency")==0 ) || ( strcmp(rec.Keyword.c_str(),"CTYPE1") ==0 && strcmp(rec.Value.c_str(),"Time")==0 ) ){
+          if( !transposed ){
+             transposed = true;
+             szFreqKeyword = "CRVAL2";
+             szFreqDelta = "CDELT2";
+             szTimeDelta = "CDELT1";             
+             printf("DEBUG : auto-detected that the dynamic spectrum has time on horizontal axis and frequency on vertical (frequency vs. time)\n");
+          }
+       }
 
        if( strstr(rec.Keyword.c_str(),"AVERF" ) ){
           m_AverList.push_back( rec.Value );
@@ -914,7 +945,7 @@ int CBgFits::ReadFits( const char* fits_file, int bAutoDetect /*=0*/, int bReadI
            inttime = atof(szCDELT2.c_str());
         }else{
            if( bIgnoreHeaderErrors <= 0 ){
-               printf("ERROR : could not read INTTIME nor CDELT2 to get time resolutions information for file %s\n",fits_file);
+               printf("WARNING : could not read INTTIME nor CDELT2 to get time resolutions information for file %s\n",fits_file);
            }
         }
      }
@@ -952,7 +983,7 @@ int CBgFits::ReadFits( const char* fits_file, int bAutoDetect /*=0*/, int bReadI
            }*/
         }else{
            if( bIgnoreHeaderErrors <= 0 ){
-               printf("ERROR : cannot get start UT time of the image %s !\n",fits_file);
+               printf("WARNING : cannot get start UT time of the image %s !\n",fits_file);
            }
         }
      }
@@ -1223,6 +1254,17 @@ int CBgFits::setY( int y, float value )
    return ret;
 }
 
+float CBgFits::addXY( int x, int y, float value )
+{
+   int pos = y*m_SizeX + x;
+   if( pos>=0 && pos < (m_SizeX*m_SizeY) ){
+      data[pos] += value;
+      return data[pos];
+   }
+   
+   return -1;
+}
+
 float CBgFits::setXY( int x, int y, float value )
 {
    int pos = y*m_SizeX + x;
@@ -1399,6 +1441,18 @@ void CBgFits::Multiply( CBgFits& right )
    }
 }
 
+double CBgFits::Sum()
+{
+   double sum = 0.00;
+   int size = m_SizeX*m_SizeY;
+   
+   for(int i=0;i<size;i++){
+      sum += data[i];
+   }
+   
+   return sum;
+}
+
 void CBgFits::AddImages( CBgFits& right, double mult_const )
 {
    int size = m_SizeX*m_SizeY;
@@ -1425,6 +1479,20 @@ void CBgFits::SEFD_XX_YY( CBgFits& right )
       data[i] = out_val;       
    }
 }
+
+void CBgFits::SEFD2AOT()
+{
+   int size = m_SizeX*m_SizeY;
+   
+   for(int i=0;i<size;i++){
+      double sefd = data[i];
+      
+      double aot = (2.00*1380.00)/sefd;
+      data[i] = aot;       
+   }
+}
+
+
 
 void CBgFits::Subtract( CBgFits& right )
 {
@@ -1525,7 +1593,9 @@ void CBgFits::Divide( CBgFits& right )
    int size = m_SizeX*m_SizeY;
    
    for(int i=0;i<size;i++){
-      data[i] = (data[i] / right.data[i]);
+      if ( right.data[i] != 0.00 ){
+         data[i] = (data[i] / right.data[i]);
+      }
    }
 }
 
@@ -1723,7 +1793,7 @@ double CBgFits::GetStat( double& mean, double& rms, double& minval, double& maxv
            double val = valXY(x,y);
            total_count++;
                       
-           if ( isnan(val) ){
+           if ( isnan(val) || isinf(val) ){
               nan_count++;
               continue;
            }
@@ -1804,7 +1874,7 @@ double CBgFits::GetStatRadiusAll( double& mean, double& rms, double& minval, dou
                  double val = valXY(x,y);
                  total_count++;
                       
-                 if ( isnan(val) ){
+                 if ( isnan(val) || isinf(val) ){
                     nan_count++;
                     continue;
                  }
@@ -1887,7 +1957,7 @@ double CBgFits::GetStatRadius( double& mean, double& rms, double& minval, double
                  double val = valXY(x,y);
                  total_count++;
                       
-                 if ( isnan(val) ){
+                 if ( isnan(val) || isinf(val) ){
                     nan_count++;
                     continue;
                  }
@@ -2519,6 +2589,8 @@ void CBgFits::PrepareBigHornsHeader( double ux_start, double _inttime, double fr
 {
   time_t fs = (time_t)ux_start;
   int usec = (ux_start-fs)*1000000.00;
+  
+  printf("DEBUG : CBgFits::PrepareBigHornsHeader , freq_start = %.4f [MHz]\n",freq_start);
 
   char szUtTime[128];
   strftime(szUtTime,80,"%Y-%m-%d %H:%M:%S",gmtime(&fs));
@@ -3024,7 +3096,7 @@ void CBgFits::MeanLines( CBgArray& mean_lines, CBgArray& rms_lines )
       for(int x=0;x<GetXSize();x++){
          double value = getXY(x,y);
          
-         if( ! isnan(value) ){
+         if( !isnan(value) && !isinf(value) ){
             mean_lines[y] += value;
             sum2          += value*value;
             counter[y]    += 1;

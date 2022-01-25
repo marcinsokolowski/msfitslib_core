@@ -11,7 +11,7 @@
 #define BG_FITS_DATA_TYPE float
 
 // enum eBgFitsAction {eBgAct_None=0,eBgAct_Log10,eBgAct_DivideByConst,eBgAct_Sqrt,eBgAct_AstroRootImage};
-enum eCalcFitsAction_T  {eNone=0,eAdd,eSubtract,eMultiply,eDivide,eSubtractLines,eCompare,eGetStat,eDivideConst, eLog10File, eSqrtFile, eAstroRootImage, eDivideLines,eTimesConst, eNormalizeByMedian, eFindValue, eDumpForHisto, eAvgChannels, eSubtractSpectrum, eDivbySpectrum, eDBFile, eAddConst, eSubtractMedian, eFindZeroInt, eLin2DB, ePrintPixelValue, eComplexMag, eAvgImages, eInvert, eABS, eSEFD_XX_YY };
+enum eCalcFitsAction_T  {eNone=0,eAdd,eSubtract,eMultiply,eDivide,eSubtractLines,eCompare,eGetStat,eDivideConst, eLog10File, eSqrtFile, eAstroRootImage, eDivideLines,eTimesConst, eNormalizeByMedian, eFindValue, eDumpForHisto, eAvgChannels, eSubtractSpectrum, eDivbySpectrum, eDBFile, eAddConst, eSubtractMedian, eFindZeroInt, eLin2DB, ePrintPixelValue, eComplexMag, eAvgImages, eInvert, eABS, eSEFD_XX_YY, eSEFD_TO_AOT };
 enum eFindValueType_T   {eFindValueExact=0,eFindValueSmaller,eFindValueLarger};
 
 
@@ -70,7 +70,13 @@ struct cIntRange
 
                         };
 
-
+struct cWCSInfo 
+{
+   string ctype;
+   string cunit;
+   float  crval;
+   float  cdelt;
+};
 
 class CBgFits
 {
@@ -99,6 +105,7 @@ public :
   double stop_freq;
   double delta_freq;
   vector<string> m_AverList;
+  vector<cWCSInfo> m_WCSInfo;
 
   // just for some data problems :
   static int gFitsUnixTimeError;
@@ -188,6 +195,7 @@ public :
   void NormalizeY();
   void NormalizeX();
   float setXY( int x, int y, float value );
+  float addXY( int x, int y, float value );
   int setY( int y, float value );
   float* set_line( int y, vector<double>& line );
   float* set_reim_line( int y, vector<double>& line_re, vector<double>& line_im );
@@ -212,6 +220,7 @@ public :
   void Multiply( CBgFits& right );
   void Subtract( CBgFits& right );
   void SEFD_XX_YY( CBgFits& right );
+  void SEFD2AOT();
   void AddImages( CBgFits& right , double mult_const=1.00 );
   void ComplexMag( CBgFits& right );
   void SubtractLines( int y1, int y0, const char* outfile="diff.txt");
@@ -219,6 +228,7 @@ public :
   int Compare( CBgFits& right, float min_diff=0.00001, int verb=0 );
   bool Offset( double dx, double dy, CBgFits& out_fits, double multiplier=1.00 );
   void Transpose( CBgFits& out_fits_t );
+  double Sum(); // calculates sum of pixel values in the image
   
   double GetStatBorder( double& mean, double& rms, double& minval, double& maxval, int border );
   double GetStat( double& mean, double& rms, double& minval, double& maxval, int x_start=0, int y_start=0, int x_end=-1, int y_end=-1 );
